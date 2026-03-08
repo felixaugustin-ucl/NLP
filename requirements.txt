@@ -1,0 +1,56 @@
+# ==============================================================================
+# NOTE: Do NOT run `pip install -r requirements.txt` directly.
+#       Use `bash install.sh` instead — it handles PyTorch Geometric
+#       dependencies in the correct installation order.
+# ==============================================================================
+
+# Core (installed by install.sh, step 1)
+torch==2.5.0
+torchvision==0.20.0
+torchaudio==2.5.0
+
+# Graph Neural Networks (installed by install.sh, step 2-3)
+torch-geometric>=2.4.0
+torch-scatter
+torch-sparse
+torch-cluster
+torch-spline-conv
+
+# NLP & Embeddings
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+tokenizers>=0.13.0
+
+# PDF Parsing
+pdfplumber>=0.9.0
+PyPDF2>=3.0.0
+pdfminer.six>=20221105
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.2.0
+scipy>=1.10.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+networkx>=3.1
+
+# Experiment Tracking
+tqdm>=4.65.0
+pyyaml>=6.0
+wandb>=0.15.0
+
+# Evaluation
+rouge-score>=0.1.2
+
+# LLM for answer generation
+openai>=1.0.0
+
+# Development
+jupyter>=1.0.0
+ipykernel>=6.0.0
+black>=23.0.0
+flake8>=6.0.0
+pytest>=7.0.0
