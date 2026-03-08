@@ -1,0 +1,154 @@
+# =============================================================================
+# Project Configuration
+# GNN-Based Retrieval for Grounded QA on the EU AI Act
+# =============================================================================
+
+project:
+  name: "gnn-eu-ai-act-retrieval"
+  seed: 42
+
+# --- Data Paths ---
+paths:
+  raw_pdf: "data/raw/eu_ai_act.pdf"
+  parsed_text: "data/processed/parsed_text.json"
+  nodes_csv: "data/processed/nodes.csv"
+  edges_csv: "data/processed/edges.csv"
+  node_features: "data/embeddings/node_features.npy"
+  node_id_mapping: "data/embeddings/node_id_mapping.json"
+  graph_object: "data/graphs/eu_ai_act_graph.pt"
+  model_checkpoint: "models/checkpoints/graphsage_best.pt"
+  final_embeddings: "models/embeddings/gnn_node_embeddings.npy"
+
+# --- PDF Parsing ---
+parsing:
+  method: "pdfplumber"  # pdfplumber | PyPDF2
+  output_format: "json"
+
+# --- Node Construction ---
+nodes:
+  types:
+    - article
+    - paragraph
+    - sub_paragraph
+    - recital
+    - annex
+    - annex_item
+    - definition
+  metadata_fields:
+    - node_id
+    - title
+    - type
+    - text
+    - page
+    - article_number
+    - chapter
+    - annex
+    - parent_id
+
+# --- Edge Construction ---
+edges:
+  structural:
+    - part_of
+    - contains
+  cross_reference:
+    - refers_to
+  definition:
+    - defines
+    - uses_term
+  optional:
+    - similar_to
+  similarity_threshold: 0.85  # for semantic similarity edges
+
+# --- Text Embedding ---
+embedding:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_dim: 384
+  batch_size: 64
+  max_length: 512
+
+# --- GNN Model ---
+gnn:
+  architecture: "GraphSAGE"  # GraphSAGE | GAT | RGCN
+  hidden_channels: 256
+  out_channels: 128
+  num_layers: 2
+  dropout: 0.3
+  aggregation: "mean"  # mean | max | lstm (for GraphSAGE)
+
+  # GAT-specific (if architecture is GAT)
+  gat:
+    heads: 4
+    concat: true
+
+  # R-GCN specific (if architecture is RGCN)
+  rgcn:
+    num_relations: 5  # number of edge types
+    num_bases: 4
+
+# --- Training ---
+training:
+  method: "contrastive"  # contrastive | link_prediction
+  epochs: 200
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  batch_size: 256
+  patience: 20  # early stopping patience
+  num_negatives: 5  # negative samples per positive
+  temperature: 0.07  # for contrastive loss
+  margin: 1.0  # for margin-based loss
+  optimizer: "adam"
+  scheduler: "cosine"  # cosine | step | none
+
+  # Edge split ratios
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+
+# --- Retrieval ---
+retrieval:
+  top_k: 10
+  similarity_metric: "cosine"  # cosine | dot_product
+  context_expansion:
+    enabled: true
+    hops: 1
+  reranking:
+    enabled: false
+
+# --- QA Generation ---
+qa:
+  model: "gpt-4"  # or local model
+  max_context_tokens: 4096
+  temperature: 0.1
+  prompt_template: |
+    You are a legal assistant specialising in the EU AI Act.
+    Answer the following question using ONLY the provided legal provisions.
+    Cite the specific article, paragraph, or section for each claim.
+    If the evidence is insufficient, say so explicitly.
+
+    Question: {question}
+
+    Evidence:
+    {evidence}
+
+    Answer:
+
+# --- Evaluation ---
+evaluation:
+  metrics:
+    - recall_at_k
+    - precision_at_k
+    - mrr
+    - ndcg_at_k
+  k_values: [1, 3, 5, 10, 20]
+  ablation:
+    - text_only
+    - structural_edges_only
+    - structural_and_reference
+    - all_edges
+
+# --- Logging ---
+logging:
+  use_wandb: false
+  wandb_project: "gnn-eu-ai-act"
+  log_every: 10  # log metrics every N epochs
+  save_every: 50  # save checkpoint every N epochs
