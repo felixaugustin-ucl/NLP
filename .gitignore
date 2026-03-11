@@ -1,0 +1,4 @@
+__pycache__/
+.pytest_cache/
+kg_out/
+EU_AI_ACT_articles_paragraphs_annexes.tsv

@@ -3,19 +3,22 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
 
 import pandas as pd
 
-from kg_io import merge_duplicate_nodes, read_tsv, write_table
+from kg_io import ensure_source_tsv, merge_duplicate_nodes, read_tsv, resolve_source_text_path, write_table
 from parse_refs import extract_explicit_references
 
 
 ARTICLE_PAR_NODE_RE = re.compile(r"^(Article\s+\d+[A-Za-z]?)\((\d+)\)$")
+
 ARTICLE_NODE_RE = re.compile(r"^Article\s+\d+[A-Za-z]?$")
 
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 def snippet_around(text: str, start: int, end: int, width: int = 120) -> str:
     left_room = max(0, (width - (end - start)) // 2)
@@ -153,6 +156,32 @@ def build_summary(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> dict[str, A
         "sample_edges": sample_edges,
     }
 
+def write_node_embeddings(nodes_df: pd.DataFrame, outdir: str | Path) -> str:
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception as exc:
+        raise RuntimeError(
+            "Node embeddings require sentence-transformers with the all-MiniLM-L6-v2 model."
+        ) from exc
+
+    texts = nodes_df["text"].fillna("").astype(str).str.strip()
+    texts = texts.where(texts.ne(""), nodes_df["node_id"].astype(str))
+    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    embeddings = model.encode(texts.tolist(), normalize_embeddings=True, show_progress_bar=False)
+    embedding_values = embeddings.tolist() if hasattr(embeddings, "tolist") else embeddings
+
+    path = Path(outdir) / "node_embeddings.parquet"
+    embeddings_df = pd.DataFrame(
+        {
+            "node_id": nodes_df["node_id"].astype(str),
+            "embedding": embedding_values,
+        }
+    )
+    embeddings_df.to_parquet(path, index=False)
+    return path.name
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build auditable EU AI Act KG from explicit references.")
@@ -163,7 +192,12 @@ def main() -> None:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    tsv_df = read_tsv(args.tsv)
+    tsv_path, generated = ensure_source_tsv(args.tsv)
+    if generated:
+        source_text_path = resolve_source_text_path(tsv_path)
+        print(f"Generated missing TSV from {source_text_path}: {tsv_path}")
+
+    tsv_df = read_tsv(tsv_path)
     nodes_df, duplicate_count = merge_duplicate_nodes(tsv_df)
 
     # Add annex stub nodes only when annex chunk nodes exist but main annex node is missing.
@@ -183,6 +217,9 @@ def main() -> None:
 
     nodes_file = write_table(nodes_df, outdir, "nodes")
     edges_file = write_table(edges_df, outdir, "edges")
+    edges_parquet_file = "edges.parquet"
+    edges_df.to_parquet(outdir / edges_parquet_file, index=False)
+    embeddings_file = write_node_embeddings(nodes_df, outdir)
 
     summary = build_summary(nodes_df, edges_df)
     summary_path = outdir / "graph_summary.json"
@@ -199,9 +236,8 @@ def main() -> None:
     print("Top 10 articles citing others most (article-level out-degree):")
     for item in summary["top_10_articles_by_out_degree"]:
         print(f"  {item['node_id']}: {item['count']}")
-    print(f"Wrote {nodes_file}, {edges_file}, graph_summary.json to {outdir}")
+    print(f"Wrote {nodes_file}, {edges_file}, {edges_parquet_file}, {embeddings_file}, graph_summary.json to {outdir}")
 
 
 if __name__ == "__main__":
     main()
-
