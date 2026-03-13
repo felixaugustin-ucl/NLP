@@ -93,7 +93,7 @@ python -m src.graph_construction.build_graph
 python -m src.features.generate_features
 
 # 4. Train the GNN
-python -m src.gnn.train
+Run `notebooks/02_gnn_training.ipynb` (instead of `python -m src.gnn.train`)
 
 # 5. Run retrieval evaluation
 python -m evaluation.evaluate_retrieval

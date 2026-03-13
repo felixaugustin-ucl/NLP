@@ -1,18 +1,18 @@
 """
-Retrieval Pipeline.
+Simple retrieval module for the EU AI Act project.
 
-Implements:
-1. Text-only baseline retrieval (cosine similarity on raw embeddings)
-2. GNN-enhanced retrieval (cosine similarity on graph-aware embeddings)
-3. Context expansion (1-hop neighbor retrieval)
-
-Usage:
-    python -m src.retrieval.retriever --query "What are the obligations of high-risk AI providers?"
+Supports:
+- Text-only retrieval with sentence embeddings
+- GNN retrieval with graph-aware embeddings
+- Optional 1-hop context expansion for GNN retrieval
 """
 
-import json
+from __future__ import annotations
+
+import argparse
 import logging
-from pathlib import Path
+from dataclasses import dataclass
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -26,32 +26,97 @@ logger = logging.getLogger(__name__)
 
 
 def load_config(config_path: str = "configs/config.yaml") -> dict:
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-class BaseRetriever:
-    """Base class for retrievers."""
+def _normalize(v: np.ndarray) -> np.ndarray:
+    norm = np.linalg.norm(v, axis=-1, keepdims=True)
+    norm = np.maximum(norm, 1e-12)
+    return v / norm
 
+
+@dataclass
+class RetrievedNode:
+    rank: int
+    node_id: str
+    score: float
+    text: str
+    type: str
+    expanded: bool = False
+
+    def as_dict(self) -> dict:
+        return {
+            "rank": self.rank,
+            "node_id": self.node_id,
+            "score": self.score,
+            "text": self.text,
+            "type": self.type,
+            "expanded": self.expanded,
+        }
+
+
+class BaseRetriever:
     def __init__(self, nodes_df: pd.DataFrame, embeddings: np.ndarray):
-        self.nodes_df = nodes_df
-        self.embeddings = embeddings
-        self.node_ids = nodes_df["node_id"].tolist()
+        if nodes_df.empty:
+            raise ValueError("nodes_df is empty")
+        if embeddings.ndim != 2:
+            raise ValueError("embeddings must be a 2D array")
+
+        self.nodes_df = nodes_df.reset_index(drop=True)
+        self.embeddings = np.asarray(_normalize(embeddings), dtype=np.float32)
+        self.node_ids = self.nodes_df["node_id"].astype(str).tolist()
+        self.id_to_text = dict(
+            zip(self.node_ids, self.nodes_df.get("text", pd.Series([""] * len(self.nodes_df))).fillna("").astype(str).tolist())
+        )
+        self.id_to_type = dict(
+            zip(self.node_ids, self.nodes_df.get("type", pd.Series([""] * len(self.nodes_df))).astype(str).tolist())
+        )
+        self._id_to_idx = {node_id: i for i, node_id in enumerate(self.node_ids)}
+
+        if len(self.node_ids) != len(self.embeddings):
+            raise ValueError("Number of node IDs and embeddings do not match")
+
+        self.encoder = None
 
     def encode_query(self, query: str) -> np.ndarray:
-        raise NotImplementedError
+        if self.encoder is None:
+            raise RuntimeError("Encoder is not initialised")
+        q = self.encoder.encode([query], normalize_embeddings=True, convert_to_numpy=True)
+        return _normalize(np.asarray(q, dtype=np.float32))
 
-    def retrieve(self, query: str, top_k: int = 10) -> list[dict]:
-        raise NotImplementedError
+    def _score_all(self, query_emb: np.ndarray) -> np.ndarray:
+        scores = cosine_similarity(query_emb, self.embeddings)[0]
+        return scores.astype(np.float32)
+
+    def retrieve(self, query: str, top_k: int = 10) -> List[dict]:
+        if top_k <= 0:
+            return []
+
+        query = str(query).strip()
+        if not query:
+            return []
+
+        q = self.encode_query(query)
+        scores = self._score_all(q)
+        order = np.argsort(scores)[::-1][:top_k]
+
+        out = []
+        for i, idx in enumerate(order.tolist()):
+            node_id = self.node_ids[int(idx)]
+            out.append(
+                RetrievedNode(
+                    rank=i + 1,
+                    node_id=node_id,
+                    score=float(scores[int(idx)]),
+                    text=self.id_to_text[node_id],
+                    type=self.id_to_type[node_id],
+                ).as_dict()
+            )
+        return out
 
 
 class TextRetriever(BaseRetriever):
-    """
-    Baseline: text-only retrieval using sentence embeddings.
-
-    No graph information is used.
-    """
-
     def __init__(
         self,
         nodes_df: pd.DataFrame,
@@ -61,174 +126,129 @@ class TextRetriever(BaseRetriever):
         super().__init__(nodes_df, text_embeddings)
         self.encoder = SentenceTransformer(model_name)
 
-    def encode_query(self, query: str) -> np.ndarray:
-        return self.encoder.encode(
-            [query], normalize_embeddings=True, convert_to_numpy=True
-        )
-
-    def retrieve(self, query: str, top_k: int = 10) -> list[dict]:
-        """
-        Retrieve top-k nodes by cosine similarity with query.
-        """
-        query_emb = self.encode_query(query)
-        similarities = cosine_similarity(query_emb, self.embeddings)[0]
-
-        # Get top-k indices
-        top_indices = np.argsort(similarities)[::-1][:top_k]
-
-        results = []
-        for idx in top_indices:
-            results.append({
-                "rank": len(results) + 1,
-                "node_id": self.node_ids[idx],
-                "score": float(similarities[idx]),
-                "text": self.nodes_df.iloc[idx].get("text", ""),
-                "type": self.nodes_df.iloc[idx].get("type", ""),
-            })
-
-        return results
-
 
 class GNNRetriever(BaseRetriever):
-    """
-    GNN-enhanced retrieval using graph-aware node embeddings.
-
-    Uses the same query encoder but compares against
-    GNN-produced node embeddings.
-    """
-
     def __init__(
         self,
         nodes_df: pd.DataFrame,
         gnn_embeddings: np.ndarray,
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
         graph_data=None,
+        text_embeddings: Optional[np.ndarray] = None,
     ):
         super().__init__(nodes_df, gnn_embeddings)
         self.encoder = SentenceTransformer(model_name)
         self.graph_data = graph_data
+        self._query_projection = None
 
-        # Project query to GNN embedding space
-        # TODO: optionally learn a projection layer
-        # For now, we use a simple linear projection
-        self.query_projection = None
+        if text_embeddings is not None:
+            self._fit_query_projection(text_embeddings, gnn_embeddings)
+
+    def _fit_query_projection(self, text_emb: np.ndarray, gnn_emb: np.ndarray):
+        if text_emb.shape[0] != gnn_emb.shape[0]:
+            logger.warning(
+                "Cannot learn query projection: text_embeddings and gnn_embeddings must have same number of nodes."
+            )
+            return
+        try:
+            W, _, _, _ = np.linalg.lstsq(text_emb, gnn_emb, rcond=None)
+            self._query_projection = W
+            logger.info(f"Learned query projection: {W.shape[0]} -> {W.shape[1]}")
+        except Exception as exc:
+            logger.warning("Query projection fit failed, using raw query embedding: %s", exc)
 
     def encode_query(self, query: str) -> np.ndarray:
-        """Encode query using text encoder."""
-        emb = self.encoder.encode(
-            [query], normalize_embeddings=True, convert_to_numpy=True
-        )
-        # TODO: Apply projection to GNN embedding space if trained
-        return emb
+        q = super().encode_query(query)
+        if self._query_projection is None:
+            return q
+        return _normalize(q @ self._query_projection)
 
-    def retrieve(self, query: str, top_k: int = 10) -> list[dict]:
-        """Retrieve top-k nodes using GNN embeddings."""
-        query_emb = self.encode_query(query)
-        similarities = cosine_similarity(query_emb, self.embeddings)[0]
-
-        top_indices = np.argsort(similarities)[::-1][:top_k]
-
-        results = []
-        for idx in top_indices:
-            results.append({
-                "rank": len(results) + 1,
-                "node_id": self.node_ids[idx],
-                "score": float(similarities[idx]),
-                "text": self.nodes_df.iloc[idx].get("text", ""),
-                "type": self.nodes_df.iloc[idx].get("type", ""),
-            })
-
-        return results
-
-    def expand_context(
-        self, results: list[dict], hops: int = 1
-    ) -> list[dict]:
-        """
-        Expand retrieved results by including 1-hop neighbors.
-
-        This adds linked definitions, annexes, and parent articles
-        to improve answer completeness.
-        """
-        if self.graph_data is None:
-            logger.warning("No graph data available for context expansion")
+    def expand_context(self, results: List[dict], hops: int = 1) -> List[dict]:
+        if hops != 1:
+            logger.info("Only 1-hop expansion is implemented in this simple version.")
+        if self.graph_data is None or not hasattr(self.graph_data, "edge_index"):
+            logger.warning("No graph_data.edge_index available for context expansion.")
             return results
 
-        expanded_ids = set(r["node_id"] for r in results)
-        edge_index = self.graph_data.edge_index.numpy()
-        id_to_idx = {nid: i for i, nid in enumerate(self.node_ids)}
-        idx_to_id = {i: nid for nid, i in id_to_idx.items()}
+        edge_index = self.graph_data.edge_index
+        if torch.is_tensor(edge_index):
+            edge_index = edge_index.detach().cpu().numpy()
+        edge_index = np.asarray(edge_index)
+        if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+            logger.warning("Unexpected edge_index shape for expansion: %s", edge_index.shape)
+            return results
 
-        for r in results:
-            node_idx = id_to_idx.get(r["node_id"])
-            if node_idx is None:
+        result_node_ids = [r["node_id"] for r in results]
+        expanded = []
+        expanded_set = set(result_node_ids)
+
+        for node_id in result_node_ids:
+            if node_id not in self._id_to_idx:
                 continue
+            src = self._id_to_idx[node_id]
+            nbr_mask = edge_index[0] == src
+            nbrs = edge_index[1][nbr_mask].astype(int).tolist()
+            for n in nbrs:
+                if 0 <= n < len(self.node_ids):
+                    nid = self.node_ids[n]
+                    if nid not in expanded_set:
+                        expanded_set.add(nid)
+                        expanded.append(
+                            {
+                                "rank": len(result_node_ids) + len(expanded) + 1,
+                                "node_id": nid,
+                                "score": 0.0,
+                                "text": self.id_to_text[nid],
+                                "type": self.id_to_type[nid],
+                                "expanded": True,
+                            }
+                        )
 
-            # Find neighbors
-            mask = edge_index[0] == node_idx
-            neighbor_indices = edge_index[1][mask]
-
-            for n_idx in neighbor_indices:
-                n_id = idx_to_id.get(int(n_idx))
-                if n_id and n_id not in expanded_ids:
-                    expanded_ids.add(n_id)
-                    idx = id_to_idx[n_id]
-                    results.append({
-                        "rank": len(results) + 1,
-                        "node_id": n_id,
-                        "score": 0.0,  # expansion, no direct score
-                        "text": self.nodes_df.iloc[idx].get("text", ""),
-                        "type": self.nodes_df.iloc[idx].get("type", ""),
-                        "expanded": True,
-                    })
-
-        return results
+        return results + expanded
 
 
-def print_results(results: list[dict], max_text_len: int = 200):
-    """Pretty-print retrieval results."""
-    print(f"\n{'='*80}")
-    print(f"Retrieved {len(results)} nodes:")
-    print(f"{'='*80}")
+def print_results(results: List[dict], max_text_len: int = 180):
+    print(f"\n{'=' * 70}")
+    print(f"Retrieved {len(results)} nodes")
+    print(f"{'=' * 70}")
     for r in results:
-        text_preview = r["text"][:max_text_len] + "..." if len(r["text"]) > max_text_len else r["text"]
-        expanded = " [EXPANDED]" if r.get("expanded") else ""
-        print(f"\n  [{r['rank']}] {r['node_id']} (score: {r['score']:.4f}){expanded}")
-        print(f"      Type: {r['type']}")
-        print(f"      Text: {text_preview}")
+        preview = r["text"][:max_text_len]
+        if len(r["text"]) > max_text_len:
+            preview += "..."
+        mark = " [expanded]" if r.get("expanded") else ""
+        print(f"[{r['rank']}] {r['node_id']}{mark} | score={r['score']:.4f}")
+        print(f"    type: {r['type']}")
+        print(f"    text: {preview}\n")
 
 
 def main():
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--query", type=str, required=True)
+    parser = argparse.ArgumentParser(description="Run simple retrieval")
+    parser.add_argument("--query", required=True, type=str)
     parser.add_argument("--method", choices=["text", "gnn"], default="gnn")
     parser.add_argument("--top_k", type=int, default=10)
+    parser.add_argument("--expand", action="store_true", help="expand GNN results with neighbors")
     args = parser.parse_args()
 
     config = load_config()
-
     nodes_df = pd.read_csv(config["paths"]["nodes_csv"])
 
     if args.method == "text":
-        text_embeddings = np.load(config["paths"]["node_features"])
-        retriever = TextRetriever(
-            nodes_df, text_embeddings, config["embedding"]["model_name"]
-        )
+        text_emb = np.load(config["paths"]["node_features"])
+        retriever = TextRetriever(nodes_df, text_emb, config["embedding"]["model_name"])
+        results = retriever.retrieve(args.query, top_k=args.top_k)
     else:
-        gnn_embeddings = np.load(config["paths"]["final_embeddings"])
-        graph_data = torch.load(config["paths"]["graph_object"])
+        gnn_emb = np.load(config["paths"]["final_embeddings"])
+        graph = torch.load(config["paths"]["graph_object"], weights_only=False)
         retriever = GNNRetriever(
-            nodes_df, gnn_embeddings, config["embedding"]["model_name"],
-            graph_data=graph_data
+            nodes_df=nodes_df,
+            gnn_embeddings=gnn_emb,
+            model_name=config["embedding"]["model_name"],
+            graph_data=graph,
+            text_embeddings=np.load(config["paths"]["node_features"]),
         )
-
-    results = retriever.retrieve(args.query, top_k=args.top_k)
-
-    if args.method == "gnn" and config["retrieval"]["context_expansion"]["enabled"]:
-        results = retriever.expand_context(
-            results, hops=config["retrieval"]["context_expansion"]["hops"]
-        )
+        results = retriever.retrieve(args.query, top_k=args.top_k)
+        if args.expand:
+            results = retriever.expand_context(results, hops=1)
 
     print_results(results)
 
