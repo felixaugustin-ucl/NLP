@@ -1,15 +1,9 @@
-# ==============================================================================
-# NOTE: Do NOT run `pip install -r requirements.txt` directly.
-#       Use `bash install.sh` instead — it handles PyTorch Geometric
-#       dependencies in the correct installation order.
-# ==============================================================================
-
-# Core (installed by install.sh, step 1)
+# Core
 torch==2.5.0
 torchvision==0.20.0
 torchaudio==2.5.0
 
-# Graph Neural Networks (installed by install.sh, step 2-3)
+# Graph Neural Networks
 torch-geometric>=2.4.0
 torch-scatter
 torch-sparse
@@ -31,11 +25,15 @@ pandas>=2.0.0
 numpy>=1.24.0
 scikit-learn>=1.2.0
 scipy>=1.10.0
+pyarrow>=15.0.0
+rank-bm25>=0.2.2
+pcst-fast>=1.0.10
 
 # Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
 networkx>=3.1
+plotly>=5.24.0
 
 # Experiment Tracking
 tqdm>=4.65.0
@@ -47,7 +45,6 @@ rouge-score>=0.1.2
 
 # LLM for answer generation
 openai>=1.0.0
-google-genai>=0.3.0
 
 # Development
 jupyter>=1.0.0

@@ -32,7 +32,7 @@ def load_config(config_path: str = "configs/config.yaml") -> dict:
 
 def generate_text_embeddings(
     texts: list[str],
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    model_name: str | None = None,
     batch_size: int = 64,
 ) -> np.ndarray:
     """
@@ -46,6 +46,9 @@ def generate_text_embeddings(
     Returns:
         numpy array of shape [num_nodes, embedding_dim]
     """
+    if not model_name:
+        raise ValueError("model_name must be provided. Use config['embedding']['model_name'].")
+
     logger.info(f"Loading embedding model: {model_name}")
     model = SentenceTransformer(model_name)
 

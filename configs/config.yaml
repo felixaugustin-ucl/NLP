@@ -17,7 +17,7 @@ paths:
   node_id_mapping: "data/embeddings/node_id_mapping.json"
   graph_object: "data/graphs/eu_ai_act_graph.pt"
   model_checkpoint: "models/checkpoints/graphsage_best.pt"
-  final_embeddings: "models/embeddings/gnn_node_embeddings.npy"
+  final_embeddings: "models/embeddings/gcn_node_embeddings_384.npy"
 
 # --- PDF Parsing ---
 parsing:
@@ -69,10 +69,10 @@ embedding:
 # --- GNN Model ---
 gnn:
   architecture: "GraphSAGE"  # GraphSAGE | GAT | RGCN
-  hidden_channels: 256
-  out_channels: 128
+  hidden_channels: 64
+  out_channels: 384
   num_layers: 2
-  dropout: 0.3
+  dropout: 0.5
   aggregation: "mean"  # mean | max | lstm (for GraphSAGE)
 
   # GAT-specific (if architecture is GAT)
@@ -89,30 +89,39 @@ gnn:
 training:
   method: "contrastive"  # contrastive | link_prediction
   epochs: 200
-  learning_rate: 0.001
-  weight_decay: 0.0001
+  learning_rate: 0.0005
+  weight_decay: 0.001
   batch_size: 256
-  patience: 20  # early stopping patience
-  num_negatives: 5  # negative samples per positive
+  patience: 8  # early stopping patience
+  num_negatives: 3  # negative samples per positive
   temperature: 0.07  # for contrastive loss
   margin: 1.0  # for margin-based loss
   optimizer: "adam"
   scheduler: "cosine"  # cosine | step | none
 
-  # Edge split ratios
-  train_ratio: 0.7
-  val_ratio: 0.15
-  test_ratio: 0.15
+  # Edge split ratios for unsupervised training/validation
+  train_ratio: 0.8
+  val_ratio: 0.2
+  test_ratio: 0.0
 
 # --- Retrieval ---
 retrieval:
   top_k: 10
+  methods:
+    - bm25
+    - dense
+    - gnn
   similarity_metric: "cosine"  # cosine | dot_product
+  bm25:
+    enabled: true
   context_expansion:
     enabled: true
     hops: 1
+    max_neighbors: 10
   reranking:
-    enabled: false
+    enabled: true
+    model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    weight: 0.4
 
 # --- QA Generation ---
 qa:

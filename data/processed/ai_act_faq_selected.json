@@ -1,0 +1,61 @@
+{
+  "source": "https://ai-act-service-desk.ec.europa.eu/en/faq",
+  "generated_on": "2026-03-10",
+  "items": [
+    {
+      "question": "What is the AI Act, and what are its objectives?",
+      "answer": "The EU AI Act is the first EU-wide legal framework on artificial intelligence. Its objectives are to ensure AI systems are safe, respect fundamental rights, and support trustworthy AI innovation by regulating AI according to risk and by providing harmonised rules across the internal market.",
+      "category": "AI Act: General questions"
+    },
+    {
+      "question": "What type of systems are regulated under the AI Act?",
+      "answer": "The AI Act applies to systems that meet the definition of an \"AI system\" in Article 3(1), including software developed with techniques listed in Annex I of the Annexes and certain system categories. It excludes non-AI software tools that do not meet that legal definition.",
+      "category": "AI Act: General questions"
+    },
+    {
+      "question": "Are \"logic-based\" or \"knowledge-based\" approaches also covered by the AI system definition?",
+      "answer": "Yes. The scope includes logic-based and knowledge-based methods as AI techniques when used in software that performs functions covered by the AI system definition, consistent with Recital 12 on AI techniques.",
+      "category": "AI Act: General questions"
+    },
+    {
+      "question": "What distinguishes an AI model from an AI system?",
+      "answer": "An AI model is a general-purpose component (including GPAI model) that can be reused by various systems, while an AI system is the operational combination of components and processes that applies AI to achieve a specific output or service. The model itself is not always treated as a full AI system unless integrated and used in that broader context.",
+      "category": "AI Act: General questions"
+    },
+    {
+      "question": "What does the risk-based approach mean?",
+      "answer": "The AI Act applies obligations by risk category: unacceptable-risk systems are prohibited, high-risk systems face strict compliance requirements, some systems have targeted transparency obligations, and minimal-risk systems are generally subject only to general market norms and few or no specific AI Act duties.",
+      "category": "AI Act: General questions"
+    },
+    {
+      "question": "How are AI agents addressed within the AI Act?",
+      "answer": "The AI Act does not define AI agents as a separate dedicated legal category. Instead, AI agent use is assessed through existing rules for AI systems and GPAI model provisions, depending on functionality, risk, and deployment context.",
+      "category": "General-purpose AI models"
+    },
+    {
+      "question": "Which AI models does the AI Act apply to?",
+      "answer": "The Act applies to general-purpose AI (GPAI) models under the new model-related provisions, including models placed on the Union market and those that reach the GPAI thresholds and conditions in the regulation. It also distinguishes provisions for model providers and downstream actors.",
+      "category": "General-purpose AI models"
+    },
+    {
+      "question": "When does a model qualify as a general-purpose AI model?",
+      "answer": "A model is treated as a general-purpose AI model when it is designed and trained for broad capabilities and can be reused for multiple purposes not limited to one specific high-risk or single-domain application, with the criteria reflected in the AI Act GPAI definition and Annex provisions.",
+      "category": "General-purpose AI models"
+    },
+    {
+      "question": "What entities or roles does the AI Act apply to when it comes to models?",
+      "answer": "For GPAI, the primary legal addressee is typically the provider, while obligations may also affect distributors and deployers depending on their role in placing, providing, integrating, or using the model in a regulated manner.",
+      "category": "General-purpose AI models"
+    },
+    {
+      "question": "If a general-purpose AI model is modified by a different actor than the original provider, does the modifying entity become the provider?",
+      "answer": "In many cases, substantial modifications can mean the actor modifying or fine-tuning the model may assume provider-like responsibilities for the resulting model version, especially where the output model is distributed or placed as a new GPAI model offering. Exact responsibility depends on legal role and extent of changes under the AI Act definitions.",
+      "category": "General-purpose AI models"
+    },
+    {
+      "question": "How does the AI Act apply to general-purpose AI models released as open-source?",
+      "answer": "Open-source GPAI model releases are addressed through the GPAI model rules, with specific treatment that may exempt pure open-source releases from some obligations in certain situations, while still applying where the model is made available in ways covered by market placement and downstream-risk provisions.",
+      "category": "General-purpose AI models"
+    }
+  ]
+}
