@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from urllib import error, request
 
@@ -12,11 +13,15 @@ import yaml
 from pcst_fast import pcst_fast
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+from transformers.utils import logging as tf_logging
 
 try:
     from scripts.prompts import build_prompt
 except ImportError:
     from prompts import build_prompt
+
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+tf_logging.set_verbosity_error()
 
 NUM_RETRIEVED_SEEDS = 7
 K_HOPS = 1

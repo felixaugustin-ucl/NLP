@@ -1,5 +1,18 @@
 # Graph Neural Network-Based Retrieval for Grounded Question Answering on the EU AI Act
 
+## Current Pipeline Logic
+
+```text
+User Query
+  -> Encode query in text embedding space
+  -> Dense seed retrieval over node_features (cosine)
+  -> 1-hop graph expansion
+  -> PCST pruning on expanded subgraph
+  -> Build prompt from post-prune node text
+  -> Ollama (qwen2.5:3b) generation
+  -> Final grounded answer
+```
+
 ## 1) Notebook Workflow
 
 Run notebooks in this order:
@@ -14,7 +27,7 @@ What each notebook does:
 - `01_data_exploration.ipynb`: data/graph inspection and sanity checks.
 - `02_gcn_training.ipynb`: trains GCN and writes `models/embeddings/gcn_node_embeddings.npy`.
 - `02_gnn_training.ipynb`: trains GraphSAGE/GNN variant and writes `models/embeddings/gnn_node_embeddings.npy`.
-- `03_retrieval_prune.ipynb`: query retrieval, k-hop expansion, and PCST pruning over the graph.
+- `03_retrieval_prune.ipynb`: query retrieval, k-hop expansion, PCST pruning, and retrieval evaluation.
 
 ## 2) Script Pipeline (Project Structure + How To Run)
 
@@ -60,7 +73,7 @@ python -m src.features.generate_features
 python -m src.graph_construction.build_graph
 ```
 
-Final retrieval + LLM answer (uses post-prune nodes as prompt context):
+Final retrieval + LLM answer:
 
 ```bash
 # start Ollama in one terminal
@@ -74,4 +87,6 @@ python3 scripts/retrieval_prune_cli.py
 Notes:
 
 - `scripts/retrieval_prune_cli.py` follows the same retrieval/prune logic as `notebooks/03_retrieval_prune.ipynb`.
-- It does not print pre/post tables now; it sends post-prune node text to `scripts/prompts.py`, then calls Ollama (`qwen2.5:3b`) and prints the final answer.
+- The script uses post-prune nodes as context for `scripts/prompts.py`.
+- The script calls local Ollama at `http://localhost:11434` with model `qwen2.5:3b`.
+- Output is the generated answer (not pre/post-prune tables).
