@@ -34,8 +34,8 @@ class GraphSAGEEncoder(nn.Module):
     def __init__(
         self,
         in_channels: int,
-        hidden_channels: int = 256,
-        out_channels: int = 128,
+        hidden_channels: int = 768,
+        out_channels: int = 768,
         num_layers: int = 2,
         dropout: float = 0.3,
         aggr: str = "mean",
@@ -98,8 +98,8 @@ class GATEncoder(nn.Module):
     def __init__(
         self,
         in_channels: int,
-        hidden_channels: int = 256,
-        out_channels: int = 128,
+        hidden_channels: int = 768,
+        out_channels: int = 768,
         num_layers: int = 2,
         heads: int = 4,
         dropout: float = 0.3,
@@ -156,8 +156,8 @@ class RGCNEncoder(nn.Module):
     def __init__(
         self,
         in_channels: int,
-        hidden_channels: int = 256,
-        out_channels: int = 128,
+        hidden_channels: int = 768,
+        out_channels: int = 768,
         num_relations: int = 5,
         num_layers: int = 2,
         num_bases: int = 4,

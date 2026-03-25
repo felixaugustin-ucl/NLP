@@ -17,7 +17,8 @@ paths:
   node_id_mapping: "data/embeddings/node_id_mapping.json"
   graph_object: "data/graphs/eu_ai_act_graph.pt"
   model_checkpoint: "models/checkpoints/graphsage_best.pt"
-  final_embeddings: "models/embeddings/gcn_node_embeddings_384.npy"
+  gcn_embeddings: "models/embeddings/gcn_node_embeddings_768.npy"
+  gnn_embeddings: "models/embeddings/gnn_node_embeddings_768.npy"
 
 # --- PDF Parsing ---
 parsing:
@@ -61,16 +62,16 @@ edges:
 
 # --- Text Embedding ---
 embedding:
-  model_name: "sentence-transformers/all-MiniLM-L6-v2"
-  embedding_dim: 384
+  model_name: "sentence-transformers/multi-qa-mpnet-base-cos-v1"
+  embedding_dim: 768
   batch_size: 64
   max_length: 512
 
 # --- GNN Model ---
 gnn:
   architecture: "GraphSAGE"  # GraphSAGE | GAT | RGCN
-  hidden_channels: 64
-  out_channels: 384
+  hidden_channels: 768
+  out_channels: 768
   num_layers: 2
   dropout: 0.5
   aggregation: "mean"  # mean | max | lstm (for GraphSAGE)
@@ -161,3 +162,64 @@ logging:
   wandb_project: "gnn-eu-ai-act"
   log_every: 10  # log metrics every N epochs
   save_every: 50  # save checkpoint every N epochs
+
+# --- Visualisation ---
+visualization:
+  matplotlib:
+    seaborn_style: "whitegrid"
+    seaborn_palette: "muted"
+    font_scale: 1.1
+    figure_dpi: 120
+    figure_size: [10, 5]
+  plotly:
+    axis_color: "#475569"
+    title_color: "#000000"
+    subtitle_color: "#64748B"
+    text_color: "#334155"
+    grid_color: "#E2E8F0"
+    paper_bgcolor: "#FFFFFF"
+    plot_bgcolor: "#FFFFFF"
+    footnote_color: "#94A3B8"
+    sequence:
+      - "#1F3A5F"
+      - "#2F5D8A"
+      - "#4A7FA7"
+      - "#6B9EC9"
+      - "#0F172A"
+      - "#334155"
+      - "#64748B"
+      - "#94A3B8"
+      - "#CBD5E1"
+      - "#0F766E"
+      - "#14B8A6"
+      - "#15803D"
+      - "#22C55E"
+      - "#C2410C"
+      - "#F59E0B"
+      - "#B91C1C"
+    continuous_scale:
+      - [0.0, "#CBD5E1"]
+      - [0.25, "#6B9EC9"]
+      - [0.5, "#2F5D8A"]
+      - [0.75, "#C2410C"]
+      - [1.0, "#B91C1C"]
+    heatmap_scale:
+      - [0.0, "#CBD5E1"]
+      - [0.35, "#6B9EC9"]
+      - [0.65, "#C2410C"]
+      - [1.0, "#B91C1C"]
+    title_font_size: 30
+    subtitle_font_size: 20
+    base_font_size: 15
+    axis_title_font_size: 10
+    axis_tick_font_size: 12
+    hover_font_size: 12
+    footnote_font_size: 12
+    title_pad_top: 20
+    footnote_y: -0.16
+    grid_width: 0.6
+    margin:
+      l: 70
+      r: 30
+      t: 115
+      b: 105
