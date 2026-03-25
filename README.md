@@ -48,10 +48,59 @@ scripts/retrieval_prune_cli.py
 
 Setup:
 
+Recommended Python version: `3.11` or above 
+
+### Python Environment Setup (by OS)
+
+- macOS / Linux:
+  ```bash
+  python3 -m venv venv
+  source venv/bin/activate
+  python -m pip install -r requirements.txt
+  ```
+
+- Windows (PowerShell):
+  ```powershell
+  py -3 -m venv venv
+  .\venv\Scripts\Activate.ps1
+  python -m pip install -r requirements.txt
+  ```
+
+Ollama prerequisite:
+
+- Ollama is not installed via `requirements.txt`.
+- If Ollama is not installed, `ollama serve` will fail.
+
+### Ollama Installation (by OS)
+
+- macOS (Apple users):
+  - Install from [Ollama](https://ollama.com/download).
+  - Then run:
+    ```bash
+    ollama serve
+    ```
+
+- Linux users:
+  - Install with:
+    ```bash
+    curl -fsSL https://ollama.com/install.sh | sh
+    ```
+  - Then run:
+    ```bash
+    ollama serve
+    ```
+
+- Windows users:
+  - Install from [Ollama](https://ollama.com/download).
+  - Then run in PowerShell:
+    ```powershell
+    ollama serve
+    ```
+
+After Ollama is running, pull the model:
+
 ```bash
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+ollama pull qwen2.5:3b
 ```
 
 Run full pipeline from repo root:
