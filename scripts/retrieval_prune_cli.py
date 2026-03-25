@@ -14,6 +14,7 @@ from pcst_fast import pcst_fast
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers.utils import logging as tf_logging
+from huggingface_hub.utils import disable_progress_bars as hf_disable_progress_bars
 
 try:
     from scripts.prompts import build_prompt
@@ -22,6 +23,8 @@ except ImportError:
 
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 tf_logging.set_verbosity_error()
+tf_logging.disable_progress_bar()
+hf_disable_progress_bars()
 
 NUM_RETRIEVED_SEEDS = 7
 K_HOPS = 1
