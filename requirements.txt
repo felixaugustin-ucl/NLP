@@ -45,6 +45,8 @@ rouge-score>=0.1.2
 
 # LLM for answer generation
 openai>=1.0.0
+groq>=0.16.0
+anthropic>=0.34.0
 
 # Development
 jupyter>=1.0.0

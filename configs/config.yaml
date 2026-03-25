@@ -17,7 +17,7 @@ paths:
   node_id_mapping: "data/embeddings/node_id_mapping.json"
   graph_object: "data/graphs/eu_ai_act_graph.pt"
   model_checkpoint: "models/checkpoints/graphsage_best.pt"
-  final_embeddings: "models/embeddings/gcn_node_embeddings_384.npy"
+  final_embeddings: "models/embeddings/gcn_node_embeddings.npy"
 
 # --- PDF Parsing ---
 parsing:

@@ -10,10 +10,12 @@ Supports:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
+import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -40,6 +42,101 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 def _tokenize(text: str) -> list[str]:
     return re.findall(r"\b\w+\b", str(text).lower())
+
+
+_LEGAL_SYNONYM_MAP: Dict[str, tuple[str, ...]] = {
+    "ai agent": ("ai system", "general purpose ai model", "autonomous agent"),
+    "ai agents": ("ai system", "general purpose ai model", "autonomous agents"),
+    "gpai": ("general purpose ai", "general purpose ai model"),
+    "general-purpose ai": ("general purpose ai", "gpai"),
+    "general-purpose ai model": ("general purpose ai model", "gpai model"),
+    "high-risk": ("high risk", "high-risk ai system"),
+    "high risk": ("high-risk", "high-risk ai system"),
+    "provider": ("provider obligations", "obligations of providers"),
+    "deployer": ("deployer obligations", "obligations of deployers"),
+    "prohibited": ("prohibited ai practices", "unacceptable risk ai"),
+    "ai literacy": ("literacy obligations", "article 4 ai literacy"),
+}
+
+
+def _normalize_legal_query(query: str) -> str:
+    text = str(query).strip().lower()
+    text = re.sub(r"\bart\.?\b", "article", text)
+    text = re.sub(r"\barts\.?\b", "articles", text)
+    text = re.sub(r"\brec\.?\b", "recital", text)
+    text = re.sub(r"\bch\.?\b", "chapter", text)
+    text = re.sub(r"\bann\.?\b", "annex", text)
+    text = re.sub(r"\bgpai\b", "general purpose ai", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _extract_citation_expansions(text: str) -> list[str]:
+    norm_text = _normalize_legal_query(text)
+    expansions: set[str] = set()
+
+    article_pat = re.compile(r"\barticle\s+(\d+[a-z]?(?:\s*\([^)]+\))*)")
+    for raw in article_pat.findall(norm_text):
+        compact = re.sub(r"\s+", "", raw)
+        base = re.match(r"(\d+[a-z]?)", compact)
+        if base:
+            expansions.add(f"article {base.group(1)}")
+        expansions.add(f"article {compact}")
+        flat = re.sub(r"[()]", " ", compact)
+        flat = re.sub(r"\s+", " ", flat).strip()
+        if flat:
+            expansions.add(f"article {flat}")
+
+    for raw in re.findall(r"\brecital\s+(\d+[a-z]?)", norm_text):
+        expansions.add(f"recital {raw}")
+    for raw in re.findall(r"\bchapter\s+([ivxlcdm]+|\d+)\b", norm_text):
+        expansions.add(f"chapter {raw}")
+    for raw in re.findall(r"\bannex\s+([ivxlcdm]+|\d+)\b", norm_text):
+        expansions.add(f"annex {raw}")
+
+    return sorted(expansions)
+
+
+def _expand_legal_query(query: str, max_extra_terms: int = 10) -> str:
+    original = str(query).strip()
+    if not original:
+        return ""
+
+    norm_query = _normalize_legal_query(original)
+    extras: list[str] = []
+
+    citation_extras = _extract_citation_expansions(norm_query)
+    extras.extend(citation_extras[: max(0, int(max_extra_terms))])
+
+    for needle, synonyms in _LEGAL_SYNONYM_MAP.items():
+        if needle in norm_query:
+            for syn in synonyms:
+                extras.append(str(syn))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in extras:
+        t = str(term).strip().lower()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        deduped.append(t)
+        if len(deduped) >= max(0, int(max_extra_terms)):
+            break
+
+    if not deduped:
+        return original
+    return f"{original} {' '.join(deduped)}"
+
+
+def _rank_normalize_dict(scores: Dict[str, float]) -> Dict[str, float]:
+    if not scores:
+        return {}
+    items = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    n = len(items)
+    if n == 1:
+        return {items[0][0]: 1.0}
+    return {k: float((n - 1 - i) / (n - 1)) for i, (k, _) in enumerate(items)}
 
 
 @dataclass
@@ -84,12 +181,33 @@ class BaseRetriever:
             raise ValueError("Number of node IDs and embeddings do not match")
 
         self.encoder = None
+        self._query_cache: dict[str, np.ndarray] = {}
+        self._query_cache_max_size = 1024
+
+    def _query_cache_key(self, query: str) -> str:
+        clean_query = str(query).strip()
+        encoder_key = type(self.encoder).__name__ if self.encoder is not None else "none"
+        raw = f"{encoder_key}::{clean_query}"
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    def _cache_query_embedding(self, key: str, value: np.ndarray) -> None:
+        if len(self._query_cache) >= self._query_cache_max_size:
+            oldest_key = next(iter(self._query_cache))
+            self._query_cache.pop(oldest_key, None)
+        self._query_cache[key] = np.asarray(value, dtype=np.float32)
 
     def encode_query(self, query: str) -> np.ndarray:
         if self.encoder is None:
             raise RuntimeError("Encoder is not initialised")
-        q = self.encoder.encode([query], normalize_embeddings=True, convert_to_numpy=True)
-        return _normalize(np.asarray(q, dtype=np.float32))
+        qtext = str(query).strip()
+        key = self._query_cache_key(qtext)
+        cached = self._query_cache.get(key)
+        if cached is not None:
+            return cached.copy()
+        q = self.encoder.encode([qtext], normalize_embeddings=True, convert_to_numpy=True)
+        out = _normalize(np.asarray(q, dtype=np.float32))
+        self._cache_query_embedding(key, out)
+        return out.copy()
 
     def _score_all(self, query_emb: np.ndarray) -> np.ndarray:
         scores = cosine_similarity(query_emb, self.embeddings)[0]
@@ -134,7 +252,19 @@ class TextRetriever(BaseRetriever):
         super().__init__(nodes_df, text_embeddings)
         if encoder is None and not model_name:
             raise ValueError("model_name must be provided when encoder is not supplied.")
-        self.encoder = encoder if encoder is not None else SentenceTransformer(model_name)
+        if encoder is not None:
+            self.encoder = encoder
+            return
+        local_only = os.getenv("HF_HUB_OFFLINE") == "1" or os.getenv("TRANSFORMERS_OFFLINE") == "1"
+        try:
+            self.encoder = SentenceTransformer(model_name, local_files_only=local_only)
+        except TypeError:
+            self.encoder = SentenceTransformer(model_name)
+        except Exception as exc:
+            if local_only:
+                raise
+            logger.warning("SentenceTransformer init failed online (%s); retrying offline cache-only mode.", exc)
+            self.encoder = SentenceTransformer(model_name, local_files_only=True)
 
 
 class BM25Retriever:
@@ -189,6 +319,45 @@ def _minmax_normalize_dict(scores: Dict[str, float]) -> Dict[str, float]:
     return {k: float((v - lo) / (hi - lo)) for k, v in scores.items()}
 
 
+def _robust_minmax_normalize_dict(scores: Dict[str, float], lower_q: float = 0.05, upper_q: float = 0.95) -> Dict[str, float]:
+    if not scores:
+        return {}
+    values = np.asarray(list(scores.values()), dtype=np.float32)
+    lo = float(np.quantile(values, lower_q))
+    hi = float(np.quantile(values, upper_q))
+    if hi - lo < 1e-12:
+        return _minmax_normalize_dict(scores)
+    out: Dict[str, float] = {}
+    for k, v in scores.items():
+        out[k] = float(np.clip((v - lo) / (hi - lo), 0.0, 1.0))
+    return out
+
+
+def _zscore_sigmoid_normalize_dict(scores: Dict[str, float]) -> Dict[str, float]:
+    if not scores:
+        return {}
+    values = np.asarray(list(scores.values()), dtype=np.float32)
+    std = float(values.std())
+    if std < 1e-12:
+        return {k: 0.5 for k in scores}
+    mean = float(values.mean())
+    return {k: float(1.0 / (1.0 + np.exp(-(v - mean) / std))) for k, v in scores.items()}
+
+
+def _calibrate_score_dict(scores: Dict[str, float], method: str = "robust_minmax") -> Dict[str, float]:
+    method = str(method or "robust_minmax").lower()
+    if method == "minmax":
+        return _minmax_normalize_dict(scores)
+    if method == "rank":
+        return _rank_normalize_dict(scores)
+    if method == "zscore_sigmoid":
+        return _zscore_sigmoid_normalize_dict(scores)
+    if method == "robust_minmax":
+        return _robust_minmax_normalize_dict(scores)
+    logger.warning("Unknown score calibration method '%s', falling back to robust_minmax", method)
+    return _robust_minmax_normalize_dict(scores)
+
+
 def main_retrieval_test(
     query: str,
     nodes_df: pd.DataFrame,
@@ -206,12 +375,20 @@ def main_retrieval_test(
     cross_encoder: Optional[CrossEncoder] = None,
     rerank_weight: float = 0.40,
     shared_encoder: Optional[SentenceTransformer] = None,
+    score_calibration: str = "robust_minmax",
+    deterministic_seed: int = 42,
+    type_boosts: Optional[Dict[str, float]] = None,
+    length_penalty_alpha: float = 0.0,
+    query_expansion: bool = True,
+    max_query_expansion_terms: int = 10,
 ) -> List[dict]:
     query = str(query).strip()
     if not query:
         return []
     if shared_encoder is None and not model_name:
         raise ValueError("model_name must be provided when shared_encoder is not supplied.")
+    np.random.seed(int(deterministic_seed))
+    type_boosts = {str(k).lower(): float(v) for k, v in (type_boosts or {}).items()}
 
     bm25_retriever = BM25Retriever(nodes_df)
     dense_retriever = TextRetriever(nodes_df, text_embeddings, model_name=model_name, encoder=shared_encoder)
@@ -226,12 +403,14 @@ def main_retrieval_test(
             encoder=shared_encoder,
         )
 
-    bm25_results = bm25_retriever.retrieve(query, top_k=top_k)
-    dense_query_emb = dense_retriever.encode_query(query)
+    retrieval_query = _expand_legal_query(query, max_extra_terms=max_query_expansion_terms) if query_expansion else query
+
+    bm25_results = bm25_retriever.retrieve(retrieval_query, top_k=top_k)
+    dense_query_emb = dense_retriever.encode_query(retrieval_query)
     dense_results = dense_retriever.retrieve_from_embedding(dense_query_emb, top_k=top_k)
 
-    bm25_scores = _minmax_normalize_dict({r["node_id"]: float(r["score"]) for r in bm25_results})
-    dense_scores = _minmax_normalize_dict({r["node_id"]: float(r["score"]) for r in dense_results})
+    bm25_scores = _calibrate_score_dict({r["node_id"]: float(r["score"]) for r in bm25_results}, method=score_calibration)
+    dense_scores = _calibrate_score_dict({r["node_id"]: float(r["score"]) for r in dense_results}, method=score_calibration)
 
     merged_ids = set(bm25_scores) | set(dense_scores)
     merged = []
@@ -280,11 +459,12 @@ def main_retrieval_test(
             candidate_indices = [gnn_retriever._id_to_idx[node_id] for node_id in candidate_ids if node_id in gnn_retriever._id_to_idx]
             if candidate_indices:
                 sims = cosine_similarity(q_gnn, gnn_retriever.embeddings[candidate_indices])[0]
-                gnn_scores = _minmax_normalize_dict(
+                gnn_scores = _calibrate_score_dict(
                     {
                         gnn_retriever.node_ids[idx]: float(score)
                         for idx, score in zip(candidate_indices, sims.tolist())
-                    }
+                    },
+                    method=score_calibration,
                 )
 
     final_ids = list(dict.fromkeys([row["node_id"] for row in merged[:top_k]] + expanded_ids))
@@ -303,8 +483,9 @@ def main_retrieval_test(
             pair_ids.append(node_id)
         if pairs:
             raw_cross_scores = np.asarray(cross_encoder.predict(pairs), dtype=np.float32).reshape(-1)
-            cross_scores = _minmax_normalize_dict(
-                {node_id: float(score) for node_id, score in zip(pair_ids, raw_cross_scores.tolist())}
+            cross_scores = _calibrate_score_dict(
+                {node_id: float(score) for node_id, score in zip(pair_ids, raw_cross_scores.tolist())},
+                method=score_calibration,
             )
 
     reranked = []
@@ -314,16 +495,22 @@ def main_retrieval_test(
             continue
         merged_score = next((row["merge_score"] for row in merged if row["node_id"] == node_id), 0.0)
         expanded_bonus = 0.05 if node_id in expanded_ids else 0.0
+        row = node_lookup.loc[node_id]
+        node_type = str(row.get("type", "")).lower()
+        type_boost = float(type_boosts.get(node_type, 0.0))
+        text_len_words = len(str(row.get("text", "")).split())
+        length_penalty = float(length_penalty_alpha) * max(0.0, (text_len_words - 400.0) / 400.0)
         base_score = (
             merged_score
             + gnn_weight * gnn_scores.get(node_id, 0.0)
             + expanded_bonus
+            + type_boost
+            - length_penalty
         )
         final_score = (
             (1.0 - rerank_weight) * base_score
             + rerank_weight * cross_scores.get(node_id, 0.0)
         )
-        row = node_lookup.loc[node_id]
         reranked.append(
             {
                 "node_id": node_id,
@@ -373,7 +560,19 @@ class GNNRetriever(BaseRetriever):
         super().__init__(nodes_df, gnn_embeddings)
         if encoder is None and not model_name:
             raise ValueError("model_name must be provided when encoder is not supplied.")
-        self.encoder = encoder if encoder is not None else SentenceTransformer(model_name)
+        if encoder is not None:
+            self.encoder = encoder
+        else:
+            local_only = os.getenv("HF_HUB_OFFLINE") == "1" or os.getenv("TRANSFORMERS_OFFLINE") == "1"
+            try:
+                self.encoder = SentenceTransformer(model_name, local_files_only=local_only)
+            except TypeError:
+                self.encoder = SentenceTransformer(model_name)
+            except Exception as exc:
+                if local_only:
+                    raise
+                logger.warning("SentenceTransformer init failed online (%s); retrying offline cache-only mode.", exc)
+                self.encoder = SentenceTransformer(model_name, local_files_only=True)
         self.graph_data = graph_data
         self._query_projection = None
 
@@ -394,8 +593,15 @@ class GNNRetriever(BaseRetriever):
             logger.warning("Query projection fit failed, using raw query embedding: %s", exc)
 
     def encode_query(self, query: str) -> np.ndarray:
-        q = super().encode_query(query)
-        return self.project_query_embedding(q)
+        qtext = str(query).strip()
+        key = self._query_cache_key(qtext)
+        cached = self._query_cache.get(key)
+        if cached is not None:
+            return cached.copy()
+        q = super().encode_query(qtext)
+        out = self.project_query_embedding(q)
+        self._cache_query_embedding(key, out)
+        return out.copy()
 
     def project_query_embedding(self, query_emb: np.ndarray) -> np.ndarray:
         q = _normalize(np.asarray(query_emb, dtype=np.float32))
@@ -409,9 +615,9 @@ class GNNRetriever(BaseRetriever):
         hops: int = 1,
         seed_k: int = 5,
         max_expanded: int = 10,
+        hop_decay: float = 0.80,
+        edge_type_weights: Optional[Dict[str, float]] = None,
     ) -> List[dict]:
-        if hops != 1:
-            logger.info("Only 1-hop expansion is implemented in this simple version.")
         if self.graph_data is None or not hasattr(self.graph_data, "edge_index"):
             logger.warning("No graph_data.edge_index available for context expansion.")
             return results
@@ -431,6 +637,22 @@ class GNNRetriever(BaseRetriever):
                 edge_confidence = edge_confidence.detach().cpu().numpy()
             edge_confidence = np.asarray(edge_confidence).reshape(-1)
 
+        edge_type = None
+        if hasattr(self.graph_data, "edge_type"):
+            edge_type = self.graph_data.edge_type
+            if torch.is_tensor(edge_type):
+                edge_type = edge_type.detach().cpu().numpy()
+            edge_type = np.asarray(edge_type).reshape(-1)
+
+        edge_type_weights = {str(k): float(v) for k, v in (edge_type_weights or {}).items()}
+        adjacency: list[list[tuple[int, int]]] = [[] for _ in range(len(self.node_ids))]
+        for pos in range(edge_index.shape[1]):
+            src_idx = int(edge_index[0, pos])
+            dst_idx = int(edge_index[1, pos])
+            if 0 <= src_idx < len(adjacency) and 0 <= dst_idx < len(adjacency):
+                adjacency[src_idx].append((dst_idx, pos))
+                adjacency[dst_idx].append((src_idx, pos))
+
         seed_results = results[: max(0, int(seed_k))]
         result_node_ids = [r["node_id"] for r in results]
         expanded_set = set(result_node_ids)
@@ -440,32 +662,42 @@ class GNNRetriever(BaseRetriever):
             node_id = seed["node_id"]
             if node_id not in self._id_to_idx:
                 continue
-            node_idx = self._id_to_idx[node_id]
-            out_mask = edge_index[0] == node_idx
-            in_mask = edge_index[1] == node_idx
-            match_positions = np.flatnonzero(out_mask | in_mask).tolist()
             trust_boost = 1.0 / float(base_rank)
+            start_idx = self._id_to_idx[node_id]
+            frontier: dict[int, float] = {start_idx: float(seed["score"]) * trust_boost}
 
-            for pos in match_positions:
-                src_idx = int(edge_index[0, pos])
-                dst_idx = int(edge_index[1, pos])
-                nbr_idx = dst_idx if src_idx == node_idx else src_idx
-                if not (0 <= nbr_idx < len(self.node_ids)):
-                    continue
-                nbr_id = self.node_ids[nbr_idx]
-                if nbr_id in expanded_set:
-                    continue
+            for hop in range(1, max(1, int(hops)) + 1):
+                next_frontier: dict[int, float] = {}
+                hop_factor = float(hop_decay) ** float(hop - 1)
+                for src_idx, src_score in frontier.items():
+                    for nbr_idx, pos in adjacency[src_idx]:
+                        if not (0 <= nbr_idx < len(self.node_ids)):
+                            continue
+                        nbr_id = self.node_ids[nbr_idx]
+                        if nbr_id in expanded_set:
+                            continue
 
-                conf = 1.0
-                if edge_confidence is not None and pos < len(edge_confidence):
-                    try:
-                        conf = float(edge_confidence[pos])
-                    except Exception:
                         conf = 1.0
+                        if edge_confidence is not None and pos < len(edge_confidence):
+                            try:
+                                conf = float(edge_confidence[pos])
+                            except Exception:
+                                conf = 1.0
 
-                candidate_score = float(seed["score"]) * conf * trust_boost
-                if candidate_score > candidate_scores.get(nbr_id, float("-inf")):
-                    candidate_scores[nbr_id] = candidate_score
+                        rel_weight = 1.0
+                        if edge_type is not None and pos < len(edge_type):
+                            et_raw = edge_type[pos]
+                            et_key = str(int(et_raw)) if np.issubdtype(type(et_raw), np.integer) else str(et_raw)
+                            rel_weight = edge_type_weights.get(et_key, edge_type_weights.get(str(et_raw), 1.0))
+
+                        step_score = float(src_score) * conf * float(rel_weight) * hop_factor
+                        if step_score > candidate_scores.get(nbr_id, float("-inf")):
+                            candidate_scores[nbr_id] = step_score
+                        if step_score > next_frontier.get(nbr_idx, float("-inf")):
+                            next_frontier[nbr_idx] = step_score
+                frontier = next_frontier
+                if not frontier:
+                    break
 
         ranked_neighbors = sorted(candidate_scores.items(), key=lambda item: item[1], reverse=True)
         if max_expanded is not None and max_expanded >= 0:
@@ -484,6 +716,55 @@ class GNNRetriever(BaseRetriever):
             )
 
         return results + expanded
+
+
+def evaluate_retrieval_from_qrels(
+    predictions: Dict[str, Iterable[str]],
+    qrels: Dict[str, Iterable[str]],
+    k_values: Iterable[int] = (1, 3, 5, 10, 20),
+) -> dict:
+    """
+    Compute retrieval metrics from query->ranked_ids and query->gold_ids mappings.
+    """
+    k_list = sorted({int(k) for k in k_values if int(k) > 0})
+    per_query: list[dict] = []
+
+    def _safe_ndcg(ranked: list[str], gold: set[str], k: int) -> float:
+        rel = [1.0 if x in gold else 0.0 for x in ranked[:k]]
+        dcg = sum(r / np.log2(i + 2) for i, r in enumerate(rel))
+        ideal_len = min(len(gold), k)
+        if ideal_len == 0:
+            return 0.0
+        idcg = sum(1.0 / np.log2(i + 2) for i in range(ideal_len))
+        return float(dcg / idcg)
+
+    for qid, ranked_ids in predictions.items():
+        ranked = [str(x) for x in ranked_ids]
+        gold = {str(x) for x in qrels.get(qid, [])}
+        row: dict = {"query_id": qid, "gold_size": len(gold)}
+        for k in k_list:
+            top = ranked[:k]
+            hits = sum(1 for x in top if x in gold)
+            row[f"precision@{k}"] = float(hits / k)
+            row[f"recall@{k}"] = float(hits / len(gold)) if gold else 0.0
+            row[f"ndcg@{k}"] = _safe_ndcg(ranked, gold, k)
+        mrr = 0.0
+        mrr_cutoff = k_list[-1]
+        for i, x in enumerate(ranked[:mrr_cutoff], start=1):
+            if x in gold:
+                mrr = 1.0 / float(i)
+                break
+        row[f"mrr@{mrr_cutoff}"] = mrr
+        per_query.append(row)
+
+    if not per_query:
+        return {"per_query": pd.DataFrame(), "macro": {}}
+
+    per_query_df = pd.DataFrame(per_query)
+    metric_cols = [c for c in per_query_df.columns if c not in {"query_id", "gold_size"}]
+    macro = {c: float(per_query_df[c].mean()) for c in metric_cols}
+    macro["queries"] = int(len(per_query_df))
+    return {"per_query": per_query_df, "macro": macro}
 
 
 def print_results(results: List[dict], max_text_len: int = 180):
