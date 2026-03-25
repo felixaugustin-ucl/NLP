@@ -1,177 +1,77 @@
 # Graph Neural Network-Based Retrieval for Grounded Question Answering on the EU AI Act
 
-## Project Overview
+## 1) Notebook Workflow
 
-This project builds a retrieval pipeline over the **EU AI Act** using a knowledge graph plus graph-based node embeddings.
-
-## Architecture
-
-```
-User Query → Query Encoder → GNN-Enhanced Retrieval → Context Expansion → Grounded Answer Generation
-```
-
-### Pipeline Stages
-
-1. **PDF Parsing** – Convert EU AI Act PDF to structured text
-2. **Node Construction** – Split into legal chunks (articles, paragraphs, recitals, annexes, definitions)
-3. **Edge Construction** – Build relationships (part_of, refers_to, defines, uses_term, similar_to)
-4. **Node Feature Generation** – Text embeddings + metadata features
-5. **GNN Training** – Self-supervised contrastive learning on graph
-6. **Retrieval** – Cosine similarity between query and graph-aware embeddings
-7. **Grounded QA** – Answer generation with citations from retrieved evidence
-
-## Project Structure
-
-```
-nlp_group_project/
-├── configs/                    # Configuration files
-│   └── config.yaml             # Main project configuration
-├── data/
-│   ├── raw/                    # Original EU AI Act PDF
-│   ├── processed/              # Parsed text, nodes.csv, edges.csv
-│   ├── embeddings/             # Text embeddings (pre-GNN)
-│   └── graphs/                 # PyG graph objects
-├── src/
-│   ├── parsing/                # PDF parsing and text extraction
-│   ├── graph_construction/     # Node and edge construction
-│   ├── features/               # Feature engineering (embeddings + metadata)
-│   ├── gnn/                    # GNN model definition and training
-│   ├── retrieval/              # Retrieval pipeline
-│   └── qa/                     # Grounded answer generation
-├── notebooks/                  # Jupyter notebooks for exploration
-├── models/
-│   ├── checkpoints/            # Saved model weights
-│   └── embeddings/             # Final graph-aware node embeddings
-├── evaluation/
-│   ├── results/                # Evaluation metrics and tables
-│   └── plots/                  # Figures and visualisations
-├── scripts/                    # Utility and runner scripts
-├── tests/                      # Unit tests
-└── docs/                       # Documentation, diagrams, report drafts
-```
-
-## Setup
-
-### Prerequisites
-
-- Python 3.10+
-- PyTorch 2.0+
-- PyTorch Geometric
-- Transformers (HuggingFace)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone <repo-url>
-cd nlp_group_project
-
-# Create virtual environment (requires Python 3.11)
-python3.11 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-## Usage
-
-```bash
-# 1. Parse the EU AI Act PDF
-python -m src.parsing.pdf_parser
-
-# 2. Build nodes from parsed text
-python -m src.graph_construction.node_builder
-
-# 3. Build edges from nodes
-python -m src.graph_construction.edge_builder
-
-# 4. Generate node features
-python -m src.features.generate_features
-
-# 5. Build the PyG graph object
-python -m src.graph_construction.build_graph
-
-# 6. Train the GCN
-Run `notebooks/02_gcn_training.ipynb`
-
-# 7. Run retrieval evaluation
-python -m evaluation.evaluate_retrieval
-
-# 8. Run QA demo
-python -m src.qa.generate_answer --query "What are the obligations of providers of high-risk AI systems?"
-```
-
-If you are starting from only `data/raw/eu_ai_act.pdf`, you need to run all five preprocessing steps above before the GCN and retrieval notebooks.
-
-## Notebook Workflow
-
-Run the notebooks in this order:
+Run notebooks in this order:
 
 1. `notebooks/01_data_exploration.ipynb`
 2. `notebooks/02_gcn_training.ipynb`
-3. `notebooks/03_retrieval_prune.ipynb`
+3. `notebooks/02_gnn_training.ipynb`
+4. `notebooks/03_retrieval_prune.ipynb`
 
-### `notebooks/01_data_exploration.ipynb`
+What each notebook does:
 
-Inputs:
-- `configs/config.yaml`
-- `data/processed/parsed_text.json`
-- `data/processed/nodes.csv`
-- `data/processed/edges.csv`
+- `01_data_exploration.ipynb`: data/graph inspection and sanity checks.
+- `02_gcn_training.ipynb`: trains GCN and writes `models/embeddings/gcn_node_embeddings.npy`.
+- `02_gnn_training.ipynb`: trains GraphSAGE/GNN variant and writes `models/embeddings/gnn_node_embeddings.npy`.
+- `03_retrieval_prune.ipynb`: query retrieval, k-hop expansion, and PCST pruning over the graph.
 
-Outputs:
-- exploratory tables and plots inside the notebook only
+## 2) Script Pipeline (Project Structure + How To Run)
 
-### `notebooks/02_gcn_training.ipynb`
+Relevant structure:
 
-Inputs:
-- `configs/config.yaml`
-- `data/graphs/eu_ai_act_graph.pt`
-- `data/processed/nodes.csv`
-- `data/processed/edges.csv`
+```text
+configs/config.yaml
+data/raw/eu_ai_act.pdf
+data/processed/{parsed_text.json,nodes.csv,edges.csv}
+data/embeddings/node_features.npy
+data/graphs/eu_ai_act_graph.pt
+src/parsing/pdf_parser.py
+src/graph_construction/{node_builder.py,edge_builder.py,build_graph.py}
+src/features/generate_features.py
+scripts/prompts.py
+scripts/retrieval_prune_cli.py
+```
 
-Outputs:
-- `models/checkpoints/gcn_best.pt`
-- `models/embeddings/gcn_node_embeddings.npy`
+Setup:
 
-Important notes:
-- the notebook currently uses a validation-only split for unsupervised training
-- the GCN output width is configured through `config.yaml` and is currently set to `384`
-- retrieval depends on the saved embeddings file, not on the checkpoint directly
+```bash
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
-### `notebooks/03_retrieval_prune.ipynb`
+Run full pipeline from repo root:
 
-Inputs:
-- `configs/config.yaml`
-- `data/processed/nodes.csv`
-- `data/processed/edges.csv`
-- `models/embeddings/gcn_node_embeddings.npy`
+```bash
+# 1) PDF -> parsed text
+python -m src.parsing.pdf_parser
 
-Outputs:
-- retrieved subgraph tables in notebook memory
-- PCST-pruned subgraph tables in notebook memory
-- Plotly visualisations in the notebook
+# 2) parsed text -> nodes.csv
+python -m src.graph_construction.node_builder
 
-Important notes:
-- the notebook now reads its file paths from `config.yaml`
-- it does not train the model
-- it assumes the final embeddings have already been generated by `02_gcn_training.ipynb`
+# 3) nodes.csv -> edges.csv
+python -m src.graph_construction.edge_builder
 
-Required upstream artifacts before running the GCN and retrieval notebooks:
+# 4) nodes.csv -> node_features.npy
+python -m src.features.generate_features
 
-- `data/processed/parsed_text.json`
-- `data/processed/nodes.csv`
-- `data/processed/edges.csv`
-- `data/graphs/eu_ai_act_graph.pt`
+# 5) nodes.csv + edges.csv + features -> graph .pt
+python -m src.graph_construction.build_graph
+```
 
-These are upstream artifacts generated by the parsing, graph-construction, and feature-generation steps. If they are missing, run the pipeline stages above first.
+Final retrieval + LLM answer (uses post-prune nodes as prompt context):
 
-Note:
-- `02_gcn_training.ipynb` produces the final node embeddings used by `03_retrieval_prune.ipynb`
-- the retrieval notebook reads the embeddings path from `config.yaml`
-- if you change the embedding output filename, update `config["paths"]["final_embeddings"]` to match
+```bash
+# start Ollama in one terminal
+ollama serve
 
-## License
+# in another terminal
+ollama pull qwen2.5:3b
+python3 scripts/retrieval_prune_cli.py
+```
 
-This project is for academic purposes (UCL NLP course).
+Notes:
+
+- `scripts/retrieval_prune_cli.py` follows the same retrieval/prune logic as `notebooks/03_retrieval_prune.ipynb`.
+- It does not print pre/post tables now; it sends post-prune node text to `scripts/prompts.py`, then calls Ollama (`qwen2.5:3b`) and prints the final answer.

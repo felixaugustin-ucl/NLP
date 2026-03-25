@@ -17,8 +17,8 @@ paths:
   node_id_mapping: "data/embeddings/node_id_mapping.json"
   graph_object: "data/graphs/eu_ai_act_graph.pt"
   model_checkpoint: "models/checkpoints/graphsage_best.pt"
-  gcn_embeddings: "models/embeddings/gcn_node_embeddings_768.npy"
-  gnn_embeddings: "models/embeddings/gnn_node_embeddings_768.npy"
+  gcn_embeddings: "models/embeddings/gcn_node_embeddings.npy"
+  gnn_embeddings: "models/embeddings/gnn_node_embeddings.npy"
 
 # --- PDF Parsing ---
 parsing:
@@ -66,6 +66,7 @@ embedding:
   embedding_dim: 768
   batch_size: 64
   max_length: 512
+  progress_bar: false
 
 # --- GNN Model ---
 gnn:
