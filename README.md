@@ -66,6 +66,50 @@ Recommended Python version: `3.11` or above
   python -m pip install -r requirements.txt
   ```
 
+### Docker Setup (Cross-Platform)
+
+If local dependency setup is unstable (especially on Windows), use Docker.
+
+#### Install Docker (by OS)
+
+- Windows:
+  - Install Docker Desktop: [https://www.docker.com/products/docker-desktop/](https://www.docker.com/products/docker-desktop/)
+  - Open Docker Desktop once after install and wait until it shows Docker is running.
+  - Ensure WSL2 is enabled if Docker Desktop prompts for it.
+
+- macOS (Apple Silicon / Intel):
+  - Install Docker Desktop: [https://www.docker.com/products/docker-desktop/](https://www.docker.com/products/docker-desktop/)
+  - Open Docker Desktop and wait until the engine is running.
+
+- Linux:
+  - Install Docker Engine: [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
+  - Install Docker Compose plugin: [https://docs.docker.com/compose/install/linux/](https://docs.docker.com/compose/install/linux/)
+  - Optional post-install (run Docker without `sudo`): [https://docs.docker.com/engine/install/linux-postinstall/](https://docs.docker.com/engine/install/linux-postinstall/)
+
+Quick check:
+
+```bash
+docker --version
+docker compose version
+```
+
+If both commands return versions, Docker is ready.
+
+#### Build and run this project with Docker
+
+```bash
+docker compose build
+docker compose run --rm app bash
+```
+
+Inside the container, run project commands exactly as usual from `/workspace`.
+
+To run Jupyter from Docker:
+
+```bash
+docker compose run --rm -p 8888:8888 app jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+```
+
 Ollama prerequisite:
 
 - Ollama is not installed via `requirements.txt`.
@@ -131,6 +175,12 @@ ollama serve
 # in another terminal
 ollama pull qwen2.5:3b
 python3 scripts/retrieval_prune_cli.py
+```
+
+If you run the script inside Docker while Ollama runs on your host machine, use:
+
+```bash
+OLLAMA_BASE_URL=http://host.docker.internal:11434 python3 scripts/retrieval_prune_cli.py
 ```
 
 Notes:

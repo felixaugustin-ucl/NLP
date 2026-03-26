@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from urllib import error, request
 
@@ -214,6 +215,7 @@ def prune_retrieved_subgraph(
 
 
 def generate_with_ollama(prompt: str, model: str = "qwen2.5:3b", timeout: int = 120) -> str:
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     payload = {
         "model": model,
         "prompt": prompt,
@@ -221,7 +223,7 @@ def generate_with_ollama(prompt: str, model: str = "qwen2.5:3b", timeout: int = 
     }
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
-        "http://localhost:11434/api/generate",
+        f"{ollama_base_url}/api/generate",
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -231,7 +233,7 @@ def generate_with_ollama(prompt: str, model: str = "qwen2.5:3b", timeout: int = 
             body = resp.read().decode("utf-8")
     except error.URLError as exc:
         raise RuntimeError(
-            "Could not connect to Ollama at http://localhost:11434. "
+            f"Could not connect to Ollama at {ollama_base_url}. "
             "Start Ollama with `ollama serve` and make sure `ollama pull qwen2.5:3b` is done."
         ) from exc
 
